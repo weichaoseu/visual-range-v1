@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>视觉测距 · 测量端（相机）</title>
+<style>
+  :root{ --bg:#0f1420; --panel:#1a2233; --line:#2a3448; --txt:#e6edf7; --dim:#8a97ad; --acc:#3fb6ff; --ok:#3fd68f; }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); display:flex; flex-direction:column; }
+  #videoWrap{ flex:1; position:relative; background:#000; overflow:hidden; }
+  #video{ width:100%; height:100%; object-fit:cover; }
+  #dist{ position:absolute; top:16px; left:0; right:0; text-align:center; font-size:36px; font-weight:700; color:#fff; text-shadow:0 1px 5px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; }
+  #panel{ padding:12px 16px; background:var(--panel); border-top:1px solid var(--line); }
+  .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  label{ font-size:14px; color:var(--dim); }
+  input[type=number]{ width:96px; background:#0c1220; border:1px solid var(--line); color:var(--txt); border-radius:6px; padding:8px 10px; font-size:15px; }
+  button{ background:var(--acc); color:#04121f; border:none; border-radius:8px; padding:10px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.sec{ background:#2a3448; color:var(--txt); }
+  #status{ font-size:12.5px; color:var(--dim); min-height:18px; margin-bottom:4px; }
+  #hint{ font-size:12px; color:var(--dim); line-height:1.6; }
+</style>
+</head>
+<body>
+  <div id="videoWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="dist">距离：---</div>
+  </div>
+  <div id="panel">
+    <div class="row">
+      <label>目标屏宽(mm)</label>
+      <input type="number" id="mmInput" value="70" min="20" max="200" step="1">
+      <button id="calibBtn">校准（放 1 米处）</button>
+      <button id="clearCalibBtn" class="sec">清除校准</button>
+    </div>
+    <div id="status">点击页面任意处启动相机…</div>
+    <div id="hint">
+      1. 另一台手机打开 <b>marker.html</b>（全屏品红）<br>
+      2. 用尺量那台手机屏幕的物理宽度(mm)，填到上面<br>
+      3. 把标记手机放到正好 <b>1 米</b>处，点「校准」<br>
+      4. 之后对准品红标记，实时显示距离
+    </div>
+  </div>
+  <canvas id="canvas" style="display:none"></canvas>
+  <script>
+  "use strict";
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const mmInput = document.getElementById('mmInput');
+  const calibBtn = document.getElementById('calibBtn');
+  const distEl = document.getElementById('dist');
+  const statusEl = document.getElementById('status');
+
+  // 处理分辨率（降采样，够用且省电）
+  const CW = 640, CH = 480;
+  canvas.width = CW; canvas.height = CH;
+
+  let focalPx = parseFloat(localStorage.getItem('vr_focalPx')) || null;
+  let lastWidthPx = null;
+  let camOn = false;
+
+  async function startCam(){
+    if (camOn) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = stream;
+      await video.play();
+      camOn = true;
+      statusEl.textContent = '相机已启动';
+      requestAnimationFrame(loop);
+    } catch(e){
+      statusEl.textContent = '相机启动失败：' + e.message + '（需 HTTPS/localhost，点击页面重试）';
+    }
+  }
+
+  function loop(){
+    if (camOn && video.readyState >= 2){
+      ctx.drawImage(video, 0, 0, CW, CH);
+      const img = ctx.getImageData(0, 0, CW, CH);
+      const d = img.data;
+      let minX=CW, maxX=-1, minY=CH, maxY=-1, count=0;
+      for (let y=0; y<CH; y++){
+        for (let x=0; x<CW; x++){
+          const i=(y*CW+x)*4;
+          const r=d[i], g=d[i+1], b=d[i+2];
+          // 品红：红、蓝高，绿低
+          if (r>120 && b>120 && g<90){
+            if (x<minX) minX=x; if (x>maxX) maxX=x;
+            if (y<minY) minY=y; if (y>maxY) maxY=y;
+            count++;
+          }
+        }
+      }
+      if (count > 3000 && maxX > minX){
+        lastWidthPx = maxX - minX;
+        const physicalMm = parseFloat(mmInput.value);
+        if (focalPx && physicalMm > 0){
+          const distCm = physicalMm * focalPx / lastWidthPx / 10;
+          distEl.textContent = distCm < 200 ? (distCm.toFixed(1) + ' cm') : ((distCm/100).toFixed(2) + ' m');
+        } else {
+          distEl.textContent = '检测到标记 · 请先校准';
+        }
+      } else {
+        lastWidthPx = null;
+        distEl.textContent = '未检测到标记';
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  calibBtn.addEventListener('click', () => {
+    if (!lastWidthPx){ statusEl.textContent = '请先把相机对准品红标记（1 米处）'; return; }
+    const physicalMm = parseFloat(mmInput.value);
+    if (!physicalMm || physicalMm <= 0){ statusEl.textContent = '请先填写目标屏宽(mm)'; return; }
+    focalPx = lastWidthPx * 1000 / physicalMm;   // 1000mm = 1 米
+    localStorage.setItem('vr_focalPx', focalPx);
+    statusEl.textContent = '校准完成 ✓ 焦距 ' + focalPx.toFixed(1) + ' px（已保存）';
+  });
+
+  document.getElementById('clearCalibBtn').addEventListener('click', () => {
+    focalPx = null;
+    localStorage.removeItem('vr_focalPx');
+    statusEl.textContent = '已清除校准';
+  });
+
+  document.body.addEventListener('click', startCam);
+  startCam();
+  </script>
+</body>
+</html>
