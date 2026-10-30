@@ -6,18 +6,18 @@
 <title>视觉测距 · 目标端（标记）</title>
 <style>
   html,body{ margin:0; height:100%; background:#000; overflow:hidden; }
-  #marker{ position:fixed; inset:0; background:#ff00ff; }
+  #wrap{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  #marker{ width:min(100vw,100vh); height:min(100vw,100vh); background:#ff00ff; }
   #hint{ position:fixed; bottom:0; left:0; right:0; text-align:center; color:#fff; background:rgba(0,0,0,.75); font-size:13px; padding:10px; font-family:sans-serif; line-height:1.6; }
 </style>
 </head>
 <body>
-  <div id="marker"></div>
+  <div id="wrap"><div id="marker"></div></div>
   <div id="hint">
-    全屏品红标记 · 请把屏幕亮度调到最高、保持常亮<br>
-    测量端请把「目标屏宽(mm)」设为本机屏幕的物理宽度（用尺量一下本机屏幕宽度，单位毫米）
+    正方形品红标记 · 边长 = 屏幕短边（宽度），横竖拿都一样<br>
+    测量端请填屏幕短边的物理宽度（约 70mm，用尺量更准）
   </div>
   <script>
-    // 尽量保持屏幕常亮
     if (navigator.wakeLock){ navigator.wakeLock.request('screen').catch(()=>{}); }
   </script>
 </body>
